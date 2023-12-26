@@ -9,7 +9,7 @@ use datachannel_sys as sys;
 use crate::error::{check, Error, Result};
 use crate::logger;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Message {
     Bin(Vec<u8>),
     Str(String),
@@ -120,7 +120,7 @@ pub trait DataChannelHandler {
     fn on_open(&mut self) {}
     fn on_closed(&mut self) {}
     fn on_error(&mut self, err: &str) {}
-    fn on_message(&mut self, msg: &[u8]) {}
+    fn on_message(&mut self, msg: Message) {}
     fn on_buffered_amount_low(&mut self) {}
     fn on_available(&mut self) {}
 }
@@ -194,9 +194,9 @@ where
     unsafe extern "C" fn message_cb(_: i32, msg: *const c_char, size: i32, ptr: *mut c_void) {
         let rtc_dc = &mut *(ptr as *mut RtcDataChannel<D>);
         let msg = if size < 0 {
-            CStr::from_ptr(msg).to_bytes()
+            Message::Str(CStr::from_ptr(msg).to_string_lossy().into_owned())
         } else {
-            slice::from_raw_parts(msg as *const u8, size as usize)
+            Message::Bin(slice::from_raw_parts(msg as *const u8, size as usize).to_owned())
         };
         rtc_dc.dc_handler.on_message(msg)
     }
