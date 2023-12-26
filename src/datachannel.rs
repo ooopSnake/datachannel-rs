@@ -9,6 +9,12 @@ use datachannel_sys as sys;
 use crate::error::{check, Error, Result};
 use crate::logger;
 
+#[derive(Debug, Clone)]
+pub enum Message {
+    Bin(Vec<u8>),
+    Str(String),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Reliability {
     pub unordered: bool,
@@ -212,6 +218,21 @@ where
     pub fn send(&self, msg: &[u8]) -> Result<()> {
         check(unsafe {
             sys::rtcSendMessage(self.id.0, msg.as_ptr() as *const c_char, msg.len() as i32)
+        })
+        .map(|_| ())
+    }
+
+    pub fn send_message(&self, msg: Message) -> Result<()> {
+        let (send_len, send_data) = match msg {
+            Message::Bin(bin) => (bin.len() as i32, bin),
+            Message::Str(s) => {
+                let s = CString::new(s)?;
+                // length is ignored. data must include trailing nul terminator
+                (-1, s.into_bytes_with_nul())
+            }
+        };
+        check(unsafe {
+            sys::rtcSendMessage(self.id.0, send_data.as_ptr() as *const c_char, send_len)
         })
         .map(|_| ())
     }
