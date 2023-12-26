@@ -209,7 +209,7 @@ where
         self.id
     }
 
-    pub fn send(&mut self, msg: &[u8]) -> Result<()> {
+    pub fn send(&self, msg: &[u8]) -> Result<()> {
         check(unsafe {
             sys::rtcSendMessage(self.id.0, msg.as_ptr() as *const c_char, msg.len() as i32)
         })
