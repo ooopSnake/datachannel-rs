@@ -237,6 +237,14 @@ where
         .map(|_| ())
     }
 
+    pub fn is_open(&self) -> bool {
+        unsafe { sys::rtcIsOpen(self.id.0) }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        unsafe { sys::rtcIsClosed(self.id.0) }
+    }
+
     pub fn label(&self) -> String {
         DataChannelInfo::label(self.id)
     }
