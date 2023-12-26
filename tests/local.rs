@@ -5,7 +5,7 @@ use std::time::Duration;
 use crossbeam_channel::{self as chan, select};
 
 use datachannel::{
-    ConnectionState, DataChannelHandler, DataChannelInfo, GatheringState, IceCandidate,
+    ConnectionState, DataChannelHandler, DataChannelInfo, GatheringState, IceCandidate, Message,
     PeerConnectionHandler, RtcConfig, RtcDataChannel, RtcPeerConnection, SessionDescription,
 };
 
@@ -21,12 +21,12 @@ enum ConnectionMsg {
 }
 
 struct Ping {
-    output: chan::Sender<String>,
+    output: chan::Sender<Message>,
     ready: chan::Sender<()>,
 }
 
 impl Ping {
-    fn new(output: chan::Sender<String>, ready: chan::Sender<()>) -> Self {
+    fn new(output: chan::Sender<Message>, ready: chan::Sender<()>) -> Self {
         Ping { output, ready }
     }
 }
@@ -37,28 +37,26 @@ impl DataChannelHandler for Ping {
         self.ready.send(()).ok();
     }
 
-    fn on_message(&mut self, msg: &[u8]) {
-        let msg = String::from_utf8_lossy(msg).to_string();
-        logger::info!("DataChannel PING: Received message: {}", &msg);
+    fn on_message(&mut self, msg: Message) {
+        logger::info!("DataChannel PING: Received message: {:?}", &msg);
         self.output.send(msg).ok();
     }
 }
 
 #[derive(Clone)]
 struct Pong {
-    output: chan::Sender<String>,
+    output: chan::Sender<Message>,
 }
 
 impl Pong {
-    fn new(output: chan::Sender<String>) -> Self {
+    fn new(output: chan::Sender<Message>) -> Self {
         Pong { output }
     }
 }
 
 impl DataChannelHandler for Pong {
-    fn on_message(&mut self, msg: &[u8]) {
-        let msg = String::from_utf8_lossy(msg).to_string();
-        logger::info!("DataChannel PONG: Received message: {}", &msg);
+    fn on_message(&mut self, msg: Message) {
+        logger::info!("DataChannel PONG: Received message: {:?}", &msg);
         self.output.send(msg).ok();
     }
 }
@@ -110,7 +108,7 @@ impl PeerConnectionHandler for LocalConn {
         logger::info!("Gathering state {}: {:?}", self.id, state);
     }
 
-    fn on_data_channel(&mut self, mut dc: Box<RtcDataChannel<Pong>>) {
+    fn on_data_channel(&mut self, dc: Box<RtcDataChannel<Pong>>) {
         logger::info!(
             "PeerConnection {}: Received DataChannel with label={}, protocol={:?}, reliability={:?}",
             self.id,
@@ -118,7 +116,8 @@ impl PeerConnectionHandler for LocalConn {
             dc.protocol(),
             dc.reliability()
         );
-        dc.send(format!("PONG from {}", self.id).as_bytes()).ok();
+        dc.send_message(Message::Str(format!("PONG from {}", self.id)))
+            .ok();
         self.dc.replace(dc);
     }
 }
@@ -142,7 +141,7 @@ fn test_connectivity() {
         let _ = env_logger::try_init();
     }
 
-    let (tx_res, rx_res) = chan::unbounded::<String>();
+    let (tx_res, rx_res) = chan::unbounded::<Message>();
     let (tx_peer1, rx_peer1) = chan::unbounded::<ConnectionMsg>();
     let (tx_peer2, rx_peer2) = chan::unbounded::<ConnectionMsg>();
 
@@ -178,8 +177,7 @@ fn test_connectivity() {
     let t1 = thread::spawn(move || {
         let (tx_ready, rx_ready) = chan::unbounded();
         let ping = Ping::new(tx_res.clone(), tx_ready);
-        let mut dc = pc1.create_data_channel("ping-pong", ping).unwrap();
-
+        let dc = pc1.create_data_channel("ping-pong", ping).unwrap();
         loop {
             select! {
                 recv(rx_peer1) -> msg => {
@@ -194,15 +192,15 @@ fn test_connectivity() {
                     }
                 },
                 recv(rx_ready) -> _ => {
-                    dc.send(format!("PING from {}", id1).as_bytes()).ok();
+                    dc.send_message(Message::Str(format!("PING from {}", id1))).ok();
                 }
             }
         }
     });
 
     let mut expected = HashSet::new();
-    expected.insert("PING from 1".to_string());
-    expected.insert("PONG from 2".to_string());
+    expected.insert(Message::Str("PING from 1".to_string()));
+    expected.insert(Message::Str("PONG from 2".to_string()));
 
     let mut res = HashSet::new();
     res.insert(rx_res.recv_timeout(Duration::from_secs(10)).unwrap());

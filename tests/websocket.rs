@@ -9,6 +9,8 @@ use futures_util::{future, pin_mut, select, FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use datachannel::Message as RtcDataChannelMessage;
+
 #[cfg(feature = "log")]
 use log as logger;
 #[cfg(feature = "tracing")]
@@ -135,19 +137,19 @@ async fn handle_new_peer(peers: PeerMap, stream: TcpStream) {
 
 #[derive(Clone)]
 struct DataPipe {
-    output: chan::Sender<String>,
+    output: chan::Sender<RtcDataChannelMessage>,
     ready: Option<chan::Sender<()>>,
 }
 
 impl DataPipe {
-    fn new_sender(output: chan::Sender<String>, ready: chan::Sender<()>) -> Self {
+    fn new_sender(output: chan::Sender<RtcDataChannelMessage>, ready: chan::Sender<()>) -> Self {
         DataPipe {
             output,
             ready: Some(ready),
         }
     }
 
-    fn new_receiver(output: chan::Sender<String>) -> Self {
+    fn new_receiver(output: chan::Sender<RtcDataChannelMessage>) -> Self {
         DataPipe {
             output,
             ready: None,
@@ -162,8 +164,7 @@ impl DataChannelHandler for DataPipe {
         }
     }
 
-    fn on_message(&mut self, msg: &[u8]) {
-        let msg = String::from_utf8_lossy(msg).to_string();
+    fn on_message(&mut self, msg: RtcDataChannelMessage) {
         self.output.try_send(msg).ok();
     }
 }
@@ -225,8 +226,11 @@ impl PeerConnectionHandler for WsConn {
             dc.reliability()
         );
 
-        dc.send(format!("Hello from {}", self.peer_id).as_bytes())
-            .ok();
+        dc.send_message(RtcDataChannelMessage::Str(format!(
+            "Hello from {}",
+            self.peer_id
+        )))
+        .ok();
         self.dc.replace(dc);
     }
 }
@@ -234,7 +238,11 @@ impl PeerConnectionHandler for WsConn {
 type ConnectionMap = Arc<Mutex<HashMap<Uuid, Box<RtcPeerConnection<WsConn>>>>>;
 type ChannelMap = Arc<Mutex<HashMap<Uuid, Box<RtcDataChannel<DataPipe>>>>>;
 
-async fn run_client(peer_id: Uuid, input: chan::Receiver<Uuid>, output: chan::Sender<String>) {
+async fn run_client(
+    peer_id: Uuid,
+    input: chan::Receiver<Uuid>,
+    output: chan::Sender<RtcDataChannelMessage>,
+) {
     let conns = ConnectionMap::new(Mutex::new(HashMap::new()));
     let chans = ChannelMap::new(Mutex::new(HashMap::new()));
 
@@ -276,7 +284,7 @@ async fn run_client(peer_id: Uuid, input: chan::Receiver<Uuid>, output: chan::Se
 
         rx_ready.next().await;
         let data = format!("Hello from {:?}", peer_id);
-        dc.send(data.as_bytes()).ok();
+        dc.send_message(RtcDataChannelMessage::Str(data)).ok();
 
         chans.lock().unwrap().insert(dest_id, dc);
     };
@@ -373,8 +381,8 @@ async fn test_connectivity() {
     spawn(run_client(id2, rx_id.clone(), tx_res.clone()));
 
     let mut expected = HashSet::new();
-    expected.insert(format!("Hello from {:?}", id1));
-    expected.insert(format!("Hello from {:?}", id2));
+    expected.insert(RtcDataChannelMessage::Str(format!("Hello from {:?}", id1)));
+    expected.insert(RtcDataChannelMessage::Str(format!("Hello from {:?}", id2)));
 
     tx_id.try_send(id1).unwrap();
     tx_id.try_send(id1).unwrap();
