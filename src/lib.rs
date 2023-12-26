@@ -88,7 +88,7 @@ pub fn cleanup() {
 
 pub use crate::config::{CertificateType, RtcConfig, TransportPolicy};
 pub use crate::datachannel::{
-    DataChannelHandler, DataChannelId, DataChannelInfo, DataChannelInit, Reliability,
+    DataChannelHandler, DataChannelId, DataChannelInfo, DataChannelInit, Message, Reliability,
     RtcDataChannel,
 };
 pub use crate::error::{Error, Result};
